@@ -96,6 +96,13 @@ class WifiEpuck(Epuck):
         self.__counter_img = 0
         self.__counter_detec_img = 0
         self.__counter_colordetec_img = 0
+        # variables used to manage overflows of the stepper motors
+        self.overflowCountLeft = 0
+        self.overflowCountRight = 0
+        self.leftStepsRawPrev = 0
+        self.rightStepsRawPrev = 0
+        self.motorPositionData = [0, 0]  # use to simulate an initial position
+        self.motorPositionDataCorrect = [0, 0]
 
 
         # start communication with computer
@@ -351,16 +358,39 @@ class WifiEpuck(Epuck):
 
     def get_motors_steps(self):
         """
-        Gets number of steps of the wheels
+        Gets number of steps of the wheels and handles possible overflow in motor encoder readings.
 
         :returns: [left_wheel, right_wheel]
-        :rtype: [int,int]
-        """ 
-        left_steps = struct.unpack("<h", struct.pack(
+        :rtype: [int, int]
+        """
+        # Fetch motor position data from the sensors packet
+        self.motorPositionData[0] = struct.unpack("<h", struct.pack(
             "<BB", self.sensors[79], self.sensors[80]))[0]
-        right_steps = struct.unpack("<h", struct.pack(
+        self.motorPositionData[1] = struct.unpack("<h", struct.pack(
             "<BB", self.sensors[81], self.sensors[82]))[0]
-        return [left_steps, right_steps]
+
+        # Handle potential overflow conditions and adjust counts
+        if ((self.leftStepsRawPrev > 0) and (self.motorPositionData[0] < 0) and 
+            (abs(self.motorPositionData[0] - self.leftStepsRawPrev) > 30000)):  # Overflow detected (positive).
+            self.overflowCountLeft += 1
+        if ((self.leftStepsRawPrev < 0) and (self.motorPositionData[0] > 0) and 
+            (abs(self.motorPositionData[0] - self.leftStepsRawPrev) > 30000)):  # Overflow detected (negative).
+            self.overflowCountLeft -= 1
+        self.motorPositionDataCorrect[0] = (self.overflowCountLeft * 65536) + self.motorPositionData[0]
+
+        if ((self.rightStepsRawPrev > 0) and (self.motorPositionData[1] < 0) and 
+            (abs(self.motorPositionData[1] - self.rightStepsRawPrev) > 30000)):  # Overflow detected (positive).
+            self.overflowCountRight += 1
+        if ((self.rightStepsRawPrev < 0) and (self.motorPositionData[1] > 0) and 
+            (abs(self.motorPositionData[1] - self.rightStepsRawPrev) > 30000)):  # Overflow detected (negative).
+            self.overflowCountRight -= 1
+        self.motorPositionDataCorrect[1] = (self.overflowCountRight * 65536) + self.motorPositionData[1]
+
+        # Update previous step values
+        self.leftStepsRawPrev = self.motorPositionData[0]
+        self.rightStepsRawPrev = self.motorPositionData[1]
+
+        return self.motorPositionDataCorrect
 
     #### begin ###
     #    LED     #
